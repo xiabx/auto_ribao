@@ -49,15 +49,15 @@ def update_schedule_time(new_time_str):
             # 清除所有旧任务
             schedule.clear()
             
-            # 添加新任务
-            schedule.every().day.at(new_time_str).do(job)
+            # 添加新任务并获取 job 实例
+            job_instance = schedule.every().day.at(new_time_str).do(job)
             
             # 更新全局时间变量
             with _current_schedule_time_lock:
                 _current_schedule_time = new_time_str
                 
-            logger.info(f"定时任务时间已更新为: 每天 {new_time_str}")
-            return True, f"更新成功，新任务时间为 {new_time_str}"
+            logger.info(f"定时任务时间已更新为: 每天 {new_time_str}。下次预计执行时间 (服务器时间): {job_instance.next_run}")
+            return True, f"更新成功，下次执行时间为 {new_time_str} (服务器时间)"
         except ValueError:
             logger.error(f"更新失败: 无效的时间格式 {new_time_str}")
             return False, f"无效的时间格式: {new_time_str}"
@@ -75,13 +75,13 @@ def start_scheduler():
     
     # 初始化定时任务
     with schedule_lock:
-        schedule.every().day.at(time_str).do(job)
+        job_instance = schedule.every().day.at(time_str).do(job)
     
     # 初始化全局时间变量
     with _current_schedule_time_lock:
         _current_schedule_time = time_str
         
-    logger.info(f"定时任务已设置: 每天 {_current_schedule_time} 执行 (仅工作日)")
+    logger.info(f"定时任务已设置: 每天 {_current_schedule_time} 执行。下次预计执行时间 (服务器时间): {job_instance.next_run}")
 
     while True:
         with schedule_lock:

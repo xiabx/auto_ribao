@@ -32,6 +32,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 USER_DATA_DIR = os.path.join(BASE_DIR, config['app']['user_data_dir'])
 IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
+COOKIE_FILE = os.path.join(BASE_DIR, 'cookie.json')
 
 # --- 配置结束 ---
 
@@ -142,16 +143,35 @@ def run():
     # 使用 sync_playwright 上下文管理器
     with sync_playwright() as p:
         browser = None
+        context = None
         try:
             logger.info("启动浏览器...")
-            browser = p.chromium.launch_persistent_context(
-                user_data_dir=USER_DATA_DIR,
-                headless=True,
-                args=["--start-maximized"],
-                no_viewport=True
-            )
+            
+            # 优先检查是否存在 cookie.json
+            if os.path.exists(COOKIE_FILE):
+                logger.info(f"发现 Cookie 文件: {COOKIE_FILE}，使用标准模式启动...")
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--start-maximized", "--disable-gpu"]
+                )
+                # 创建上下文并注入 Cookie
+                context = browser.new_context(no_viewport=True)
+                with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
+                    cookies = json.load(f)
+                    context.add_cookies(cookies)
+                logger.info("Cookie 注入成功")
+            else:
+                logger.warning("未找到 cookie.json，尝试使用持久化上下文 (可能不稳定)...")
+                # 回退到旧模式
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=USER_DATA_DIR,
+                    headless=True,
+                    args=["--start-maximized", "--disable-gpu"],
+                    no_viewport=True
+                )
+                browser = context # 在持久化模式下，context 充当 browser
 
-            page = browser.pages[0]
+            page = context.new_page() if browser != context else context.pages[0]
             screenshot_path = ""
 
             logger.info(f"正在打开页面: {TARGET_URL}")
@@ -215,13 +235,15 @@ def run():
             
             # 尝试截图（如果浏览器已启动）
             image_url = None
-            if browser and browser.pages:
+            if context: # 使用 context 检查更准确
                 try:
-                    page = browser.pages[0]
-                    screenshot_name = f"daily_report_error_{get_timestamp()}.png"
-                    screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
-                    page.screenshot(path=screenshot_path)
-                    image_url = upload_to_cos_and_get_url(screenshot_path)
+                    # 尝试获取当前页面或新建页面截图
+                    page_to_capture = page if 'page' in locals() else (context.pages[0] if context.pages else None)
+                    if page_to_capture:
+                        screenshot_name = f"daily_report_error_{get_timestamp()}.png"
+                        screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
+                        page_to_capture.screenshot(path=screenshot_path)
+                        image_url = upload_to_cos_and_get_url(screenshot_path)
                 except Exception as screenshot_error:
                     logger.error(f"截图失败: {screenshot_error}")
 
@@ -239,6 +261,12 @@ def run():
                     logger.info("浏览器已关闭")
                 except Exception as e:
                     logger.warning(f"关闭浏览器时出错 (可能已关闭): {e}")
+            elif context: # 如果是 persistent context，browser 变量可能指向 context
+                 try:
+                    context.close()
+                    logger.info("上下文已关闭")
+                 except Exception as e:
+                    pass
 
 
 if __name__ == "__main__":
