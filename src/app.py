@@ -279,13 +279,33 @@ app.register_blueprint(bp)
 def root():
     return redirect(url_for('auto_ribao.index'))
 
+
+# src/app.py 文件末尾
+
 if __name__ == '__main__':
+    # 1. 启动定时任务
     logger.info("正在启动 Web 服务...")
+
     # 启动定时任务线程
     scheduler_thread = threading.Thread(target=start_scheduler, daemon=True)
     scheduler_thread.start()
     logger.info("定时任务调度器已启动")
 
-    port = config['app']['port']
+    # 2. 获取配置端口
+    port = config['app'].get('port', 5001)  # 增加默认值防止报错
+
+    # 3. 打印本地开发访问地址提示 (关键步骤)
+    print("\n" + "=" * 50)
+    print(f" 服务已启动！请通过以下地址访问:")
+    print(f" 首页: http://127.0.0.1:{port}/auto_ribao/")
+    print(f" 登录: http://127.0.0.1:{port}/auto_ribao/login")
+    print("=" * 50 + "\n")
+
     logger.info(f"Web 服务监听端口: {port}")
+    print("当前 SERVER_NAME 配置:", app.config.get('SERVER_NAME'))
+    print("=" * 20 + " 路由表 " + "=" * 20)
+    print(app.url_map)
+    print("=" * 50)
+    # 4. 启动 Flask
+    # host='0.0.0.0' 允许局域网访问，也适配 Docker/服务器环境
     app.run(debug=False, host='0.0.0.0', port=port)
