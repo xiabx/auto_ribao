@@ -30,6 +30,8 @@
         .result-error { color: #F56C6C; }
         .result-message { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
         .result-detail { color: #666; font-size: 14px; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 4px; margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        .schedule-info { font-size: 14px; color: #606266; margin-right: 20px; }
+        .schedule-edit-btn { padding: 0; }
     </style>
 </head>
 <body>
@@ -37,7 +39,16 @@
         <div class="card">
             <div class="header">
                 <h2>📅 工作日报生成器</h2>
-                <el-button type="text" class="logout-btn" @click="logout">退出登录</el-button>
+                <div>
+                    <span class="schedule-info">
+                        {% raw %}
+                        <span v-if="currentScheduleTime">任务将在每天 {{ currentScheduleTime }} 执行</span>
+                        <span v-else>定时任务加载中...</span>
+                        {% endraw %}
+                        <el-button type="text" class="schedule-edit-btn" icon="el-icon-edit" @click="openScheduleDialog"></el-button>
+                    </span>
+                    <el-button type="text" class="logout-btn" @click="logout">退出登录</el-button>
+                </div>
             </div>
 
             <div class="form-container">
@@ -193,6 +204,27 @@
                 <el-button type="danger" @click="confirmClearPlans" :loading="clearing">确认清除</el-button>
             </span>
         </el-dialog>
+
+        <!-- 定时任务设置对话框 -->
+        <el-dialog title="设置定时任务时间" :visible.sync="scheduleDialogVisible" width="30%">
+            <el-form label-width="100px">
+                <el-form-item label="执行时间">
+                    <el-time-picker
+                        v-model="newScheduleTime"
+                        format="HH:mm"
+                        value-format="HH:mm"
+                        placeholder="任意时间点">
+                    </el-time-picker>
+                </el-form-item>
+                <div style="font-size: 12px; color: #999; margin-left: 100px;">
+                    注意：此设置仅在系统运行时生效，重启后将恢复为配置文件中的默认时间。
+                </div>
+            </el-form>
+            <span slot="footer" class="dialog-footer">
+                <el-button @click="scheduleDialogVisible = false">取 消</el-button>
+                <el-button type="primary" @click="updateScheduleTime" :loading="updatingSchedule">确 定</el-button>
+            </span>
+        </el-dialog>
     </div>
 
     <script>
@@ -238,11 +270,18 @@
                 clearDialogVisible: false,
                 clearType: 'range',
                 clearDateRange: [],
-                clearing: false
+                clearing: false,
+
+                // 定时任务相关
+                currentScheduleTime: '',
+                scheduleDialogVisible: false,
+                newScheduleTime: '',
+                updatingSchedule: false
             },
             created() {
                 this.fetchPlans();
                 this.loadHolidaysForMonth(new Date());
+                this.fetchScheduleTime();
             },
             watch: {
                 currentDate(newDate) {
@@ -254,6 +293,14 @@
                     axios.get('/api/get_plan').then(res => {
                         this.plans = res.data;
                     }).catch(console.error);
+                },
+                fetchScheduleTime() {
+                    axios.get('/api/get_schedule_time').then(res => {
+                        this.currentScheduleTime = res.data.time;
+                    }).catch(err => {
+                        console.error("获取定时任务时间失败:", err);
+                        this.currentScheduleTime = '获取失败';
+                    });
                 },
                 loadHolidaysForMonth(date) {
                     const year = date.getFullYear();
@@ -398,6 +445,30 @@
                             this.clearing = false;
                         });
                     }).catch(() => {});
+                },
+                openScheduleDialog() {
+                    this.newScheduleTime = this.currentScheduleTime;
+                    this.scheduleDialogVisible = true;
+                },
+                updateScheduleTime() {
+                    if (!this.newScheduleTime) {
+                        this.$message.error('请选择时间');
+                        return;
+                    }
+                    
+                    this.updatingSchedule = true;
+                    axios.post('/api/update_schedule_time', { time: this.newScheduleTime })
+                        .then(res => {
+                            this.$message.success(res.data.message);
+                            this.currentScheduleTime = this.newScheduleTime;
+                            this.scheduleDialogVisible = false;
+                        })
+                        .catch(err => {
+                            this.$message.error('更新失败: ' + (err.response?.data?.error || err.message));
+                        })
+                        .finally(() => {
+                            this.updatingSchedule = false;
+                        });
                 }
             }
         })

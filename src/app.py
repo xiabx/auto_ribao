@@ -9,7 +9,7 @@ from config_loader import config
 from functools import wraps
 from workday_utils import get_holiday_info, get_holidays_in_range
 from db_manager import get_all_plans, update_plan, delete_plan, get_plans_by_date, add_or_update_plan, clear_plans_by_date_range, clear_all_plans
-from scheduler import start_scheduler
+from scheduler import start_scheduler, get_current_schedule_time, update_schedule_time
 from logger import logger
 
 # 获取当前文件所在目录 (src)
@@ -243,6 +243,33 @@ def api_get_holidays_batch():
         
     holidays = get_holidays_in_range(start_date, end_date)
     return jsonify(holidays)
+
+@bp.route('/api/get_schedule_time', methods=['GET'])
+@login_required
+def api_get_schedule_time():
+    time_str = get_current_schedule_time()
+    
+    # 如果调度器还没准备好，直接从配置读取默认值
+    if not time_str:
+        time_str = config.get('scheduler', {}).get('time', '18:00')
+        
+    return jsonify({"time": time_str})
+
+@bp.route('/api/update_schedule_time', methods=['POST'])
+@login_required
+def api_update_schedule_time():
+    data = request.json
+    new_time = data.get('time')
+    
+    if not new_time:
+        return jsonify({"error": "缺少时间参数"}), 400
+        
+    success, message = update_schedule_time(new_time)
+    
+    if success:
+        return jsonify({"message": message})
+    else:
+        return jsonify({"error": message}), 400
 
 # 注册 Blueprint
 app.register_blueprint(bp)
