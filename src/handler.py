@@ -154,8 +154,10 @@ def run():
                     headless=True,
                     args=["--start-maximized", "--disable-gpu"]
                 )
-                # 创建上下文并注入 Cookie
-                context = browser.new_context(no_viewport=True)
+                # 创建上下文并注入 Cookie，同时设置视口
+                context = browser.new_context(
+                    viewport={'width': 1920, 'height': 1080}
+                )
                 with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
                     cookies = json.load(f)
                     context.add_cookies(cookies)
@@ -167,7 +169,7 @@ def run():
                     user_data_dir=USER_DATA_DIR,
                     headless=True,
                     args=["--start-maximized", "--disable-gpu"],
-                    no_viewport=True
+                    viewport={'width': 1920, 'height': 1080}
                 )
                 browser = context # 在持久化模式下，context 充当 browser
 
@@ -182,37 +184,51 @@ def run():
             # 等待1秒，确保页面完全加载
             time.sleep(1)
 
-            # 1. 点击“添加记录”
-            # 等待按钮出现并点击
-            logger.info("点击“添加记录”按钮")
-            page.locator("#wiki-notable-iframe").content_frame.get_by_role("button", name="添加记录").click()
+            # 1. 点击“添加记录”按钮
+            # 改用更通用的 CSS 选择器，不再依赖中文文本
+            logger.info("正在定位并点击“添加记录”按钮...")
+            # 假设按钮在 iframe 内，并且有一个独特的 class 或 id，这里使用一个可能的 class
+            # 如果这个选择器失效，需要根据实际页面结构调整
+            add_button_selector = 'div[class*="add-record-btn"]' # 这是一个示例，可能需要调整
+            # 增加一个更通用的备用选择器，通过图标来定位
+            add_button_selector_fallback = 'span[class*="icon-add"]'
+            
+            iframe = page.frame_locator("#wiki-notable-iframe")
+            add_button = iframe.locator(add_button_selector).or_(iframe.locator(add_button_selector_fallback))
+            
+            # 增加等待时间，确保按钮可见
+            add_button.wait_for(timeout=30000)
+            add_button.click()
             time.sleep(1)
 
             logger.info("选择“需支持”")
-            page.locator("#wiki-notable-iframe").content_frame.locator("div").filter(has_text=re.compile(r"^需支持$")).click()
+            # 这里也可能需要修改，如果“需支持”也是根据语言变化的话
+            # 暂时保留，如果再次出错，需要提供英文环境下的文本
+            iframe.locator("div").filter(has_text=re.compile(r"^(需支持|Support)$")).click()
 
             # 按20下backspace
             logger.info("清除旧内容")
             for _ in range(15):
-                page.locator("#wiki-notable-iframe").content_frame.get_by_role("textbox").nth(4).press("Backspace")
+                iframe.get_by_role("textbox").nth(4).press("Backspace")
                 time.sleep(0.1)
             time.sleep(1)
 
             logger.info(f"填写今日内容: {todo_content[:20]}...")
-            page.locator("#wiki-notable-iframe").content_frame.get_by_role("textbox").nth(4).fill(todo_content)
+            iframe.get_by_role("textbox").nth(4).fill(todo_content)
             time.sleep(1)
 
             logger.info("点击下一个输入框")
-            page.locator("#wiki-notable-iframe").content_frame.locator(
+            iframe.locator(
                 "div:nth-child(3) > .field > .sc-dx7zg8-0 > .sc-dx7zg8-3 > .sc-ryhpjr-0 > .sc-elxj4z-0 > .sc-elxj4z-1 > .content > div > .sc-dABzDS").click()
             time.sleep(1)
 
             logger.info(f"填写迭代事项: {progress_content[:20]}...")
-            page.locator("#wiki-notable-iframe").content_frame.get_by_role("textbox").nth(5).fill(progress_content)
+            iframe.get_by_role("textbox").nth(5).fill(progress_content)
             time.sleep(1)
 
             logger.info("提交记录")
-            page.locator("#wiki-notable-iframe").content_frame.locator(".sc-1gu97lr-4 > button:nth-child(6)").click()
+            # 提交按钮也可能需要修改
+            iframe.locator(".sc-1gu97lr-4 > button:nth-child(6)").click()
             time.sleep(1)
 
             logger.info("✅ 日报自动填写成功！")
