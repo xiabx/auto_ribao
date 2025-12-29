@@ -168,12 +168,15 @@
     </div>
 
     <script>
+        // 设置 axios 基础 URL
+        axios.defaults.baseURL = '/auto_ribao';
+
         // 添加全局拦截器处理 401
         axios.interceptors.response.use(response => {
             return response;
         }, error => {
             if (error.response && error.response.status === 401) {
-                window.location.href = '/login';
+                window.location.href = '/auto_ribao/login';
             }
             return Promise.reject(error);
         });
@@ -319,7 +322,7 @@
                     }).catch(() => {});
                 },
                 logout() {
-                    window.location.href = '/logout';
+                    window.location.href = '/auto_ribao/logout';
                 }
             }
         })

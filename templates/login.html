@@ -262,7 +262,7 @@
             errorMsg.textContent = '';
 
             try {
-                const response = await fetch('/api/login', {
+                const response = await fetch('/auto_ribao/api/login', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -273,7 +273,7 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    window.location.href = '/';
+                    window.location.href = '/auto_ribao/';
                 } else {
                     errorMsg.textContent = data.error || '登录失败，请重试';
                     btn.textContent = '登 录';

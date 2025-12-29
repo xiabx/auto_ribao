@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, Blueprint
 from werkzeug.security import generate_password_hash, check_password_hash
 import json
 import os
@@ -25,27 +25,30 @@ users = {
     config['security']['admin_user']: generate_password_hash(config['security']['admin_password'])
 }
 
+# 创建 Blueprint，设置 URL 前缀
+bp = Blueprint('auto_ribao', __name__, url_prefix='/auto_ribao')
+
 # === 登录验证装饰器 ===
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user' not in session:
             # 如果是 API 请求，返回 401 状态码
-            if request.path.startswith('/api/'):
+            if request.path.startswith('/auto_ribao/api/') or request.path.startswith('/api/'):
                 return jsonify({"error": "未登录"}), 401
-            return redirect(url_for('login'))
+            return redirect(url_for('auto_ribao.login'))
         return f(*args, **kwargs)
     return decorated_function
 
-# === 路由 ===
+# === 路由 (全部挂载到 Blueprint) ===
 
-@app.route('/login')
+@bp.route('/login')
 def login():
     if 'user' in session:
-        return redirect(url_for('index'))
+        return redirect(url_for('auto_ribao.index'))
     return render_template('login.html')
 
-@app.route('/api/login', methods=['POST'])
+@bp.route('/api/login', methods=['POST'])
 def api_login():
     data = request.json
     username = data.get('username')
@@ -60,19 +63,19 @@ def api_login():
     logger.warning(f"用户 {username} 登录失败: 密码错误或用户不存在")
     return jsonify({"error": "用户名或密码错误"}), 401
 
-@app.route('/logout')
+@bp.route('/logout')
 def logout():
     username = session.get('user')
     session.pop('user', None)
     logger.info(f"用户 {username} 退出登录")
-    return redirect(url_for('login'))
+    return redirect(url_for('auto_ribao.login'))
 
-@app.route('/')
+@bp.route('/')
 @login_required
 def index():
     return render_template('index.html')
 
-@app.route('/api/generate_plan', methods=['POST'])
+@bp.route('/api/generate_plan', methods=['POST'])
 @login_required
 def api_generate_plan():
     data = request.json
@@ -109,7 +112,7 @@ def api_generate_plan():
         logger.error(f"生成计划时发生异常: {e}", exc_info=True)
         return jsonify({"error": f"系统错误: {str(e)}"}), 500
 
-@app.route('/api/save_generated_plans', methods=['POST'])
+@bp.route('/api/save_generated_plans', methods=['POST'])
 @login_required
 def api_save_generated_plans():
     data = request.json
@@ -139,7 +142,7 @@ def api_save_generated_plans():
         logger.error(f"保存计划失败: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/get_plan', methods=['GET'])
+@bp.route('/api/get_plan', methods=['GET'])
 @login_required
 def api_get_plan():
     try:
@@ -149,7 +152,7 @@ def api_get_plan():
         logger.error(f"获取计划列表失败: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/update_day', methods=['POST'])
+@bp.route('/api/update_day', methods=['POST'])
 @login_required
 def api_update_day():
     data = request.json
@@ -169,7 +172,7 @@ def api_update_day():
         logger.error(f"更新计划失败: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/delete_plan', methods=['POST'])
+@bp.route('/api/delete_plan', methods=['POST'])
 @login_required
 def api_delete_plan():
     data = request.json
@@ -187,7 +190,7 @@ def api_delete_plan():
         logger.error(f"删除计划失败: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/check_holiday', methods=['GET'])
+@bp.route('/api/check_holiday', methods=['GET'])
 @login_required
 def api_check_holiday():
     date_str = request.args.get('date')
@@ -197,7 +200,7 @@ def api_check_holiday():
     holiday_info = get_holiday_info(date_str)
     return jsonify({"holiday": holiday_info})
 
-@app.route('/api/get_holidays_batch', methods=['GET'])
+@bp.route('/api/get_holidays_batch', methods=['GET'])
 @login_required
 def api_get_holidays_batch():
     start_date = request.args.get('start_date')
@@ -208,6 +211,14 @@ def api_get_holidays_batch():
         
     holidays = get_holidays_in_range(start_date, end_date)
     return jsonify(holidays)
+
+# 注册 Blueprint
+app.register_blueprint(bp)
+
+# 添加根路由重定向 (可选，方便访问)
+@app.route('/')
+def root():
+    return redirect(url_for('auto_ribao.index'))
 
 if __name__ == '__main__':
     logger.info("正在启动 Web 服务...")
