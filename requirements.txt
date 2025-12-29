@@ -1,0 +1,8 @@
+openai
+Flask
+schedule
+playwright
+cos-python-sdk-v5
+PyYAML
+chinesecalendar
+requests

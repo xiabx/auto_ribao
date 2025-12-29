@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工作日报生成器</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-ui@2.15.14/lib/index.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-ui@2.15.14/lib/theme-chalk/index.css">
+    <style>
+        body { font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "微软雅黑", Arial, sans-serif; background-color: #f5f7fa; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card { background: #fff; border-radius: 4px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .calendar-day { height: 100%; padding: 5px; position: relative; overflow-y: auto; }
+        .calendar-day.has-plan { background-color: #f0f9eb; }
+        .calendar-day.is-holiday { background-color: #fef0f0; }
+        .calendar-day .date-num { font-weight: bold; margin-bottom: 5px; }
+        .calendar-day .plan-item { font-size: 12px; color: #666; margin-bottom: 2px; padding: 2px; background: rgba(255,255,255,0.5); border-radius: 2px; white-space: pre-wrap; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+        .calendar-day .holiday-tag { font-size: 10px; color: #f56c6c; position: absolute; top: 5px; right: 5px; }
+        .el-calendar-table .el-calendar-day { height: 120px; }
+        .form-container { max-width: 800px; }
+        .logout-btn { float: right; }
+        .plan-list-item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .plan-list-item:last-child { border-bottom: none; }
+        .result-dialog-content { text-align: center; padding: 20px; }
+        .result-icon { font-size: 48px; margin-bottom: 15px; }
+        .result-success { color: #67C23A; }
+        .result-error { color: #F56C6C; }
+        .result-message { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
+        .result-detail { color: #666; font-size: 14px; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 4px; margin-top: 10px; max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <div id="app" class="container">
+        <div class="card">
+            <div class="header">
+                <h2>📅 工作日报生成器</h2>
+                <el-button type="text" class="logout-btn" @click="logout">退出登录</el-button>
+            </div>
+
+            <div class="form-container">
+                <el-form :model="form" label-width="100px">
+                    <el-form-item label="总需求描述">
+                        <el-input
+                            type="textarea"
+                            :rows="6"
+                            v-model="form.requirement"
+                            placeholder="请输入详细的需求描述"
+                        ></el-input>
+                    </el-form-item>
+                    <el-form-item label="起止日期">
+                        <el-date-picker
+                            v-model="form.dateRange"
+                            type="daterange"
+                            range-separator="至"
+                            start-placeholder="开始日期"
+                            end-placeholder="结束日期"
+                            value-format="yyyy-MM-dd"
+                            style="width: 100%;">
+                        </el-date-picker>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" @click="generatePlan" :loading="loading" style="width: 200px;">生成计划</el-button>
+                    </el-form-item>
+                </el-form>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>🗓️ 工作日历</h3>
+            <el-calendar v-model="currentDate">
+                <template slot="dateCell" slot-scope="{date, data}">
+                    {% raw %}
+                    <div class="calendar-day"
+                         :class="{
+                             'has-plan': getPlansForDate(data.day).length > 0,
+                             'is-holiday': isHoliday(data.day)
+                         }"
+                         @click="handleDateClick(data.day)">
+                        <div class="date-num">{{ data.day.split('-').slice(2).join('') }}</div>
+
+                        <div v-if="isHoliday(data.day)" class="holiday-tag">
+                            {{ getHolidayName(data.day) }}
+                        </div>
+
+                        <div v-for="plan in getPlansForDate(data.day)" :key="plan.id" class="plan-item">
+                            {{ plan.todo }}
+                        </div>
+                    </div>
+                    {% endraw %}
+                </template>
+            </el-calendar>
+        </div>
+
+        <!-- 日报详情/编辑对话框 -->
+        <el-dialog :title="currentDateStr + ' 日报详情'" :visible.sync="dialogVisible" width="60%">
+            <div v-if="currentPlans.length === 0" style="text-align: center; color: #999; padding: 20px;">
+                暂无计划
+            </div>
+            <div v-else>
+                <div v-for="(plan, index) in currentPlans" :key="plan.id" class="plan-list-item">
+                    <el-form :model="plan" label-width="80px">
+                        <el-form-item label="工作内容">
+                            <el-input type="textarea" v-model="plan.todo" rows="6"></el-input>
+                        </el-form-item>
+                        <el-form-item label="进度">
+                            <el-input type="textarea" v-model="plan.progress" rows="2"></el-input>
+                        </el-form-item>
+                        <el-form-item>
+                            <el-button type="primary" size="small" @click="updatePlan(plan)">保存修改</el-button>
+                            <el-button type="text" style="color: #f56c6c; margin-left: 10px;" @click="deletePlan(plan.id)">删除</el-button>
+                        </el-form-item>
+                    </el-form>
+                </div>
+            </div>
+            <span slot="footer" class="dialog-footer">
+                <el-button @click="dialogVisible = false">关 闭</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- 计划预览/确认对话框 -->
+        <el-dialog title="生成的计划预览 (可编辑)" :visible.sync="previewDialogVisible" width="70%" :close-on-click-modal="false">
+            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                <span style="font-weight: bold; margin-right: 15px;">入库模式：</span>
+                <el-radio-group v-model="saveMode">
+                    <el-radio label="overwrite">覆盖模式 (清除该时间段原有计划)</el-radio>
+                    <el-radio label="append">追加模式 (在原有内容后追加)</el-radio>
+                </el-radio-group>
+            </div>
+            <div style="max-height: 55vh; overflow-y: auto; padding-right: 10px;">
+                {% raw %}
+                <div v-for="(plan, index) in generatedPlans" :key="index" class="plan-list-item">
+                    <el-form :model="plan" label-width="80px">
+                        <el-tag size="medium" style="margin-bottom: 10px;">{{ plan.date }}</el-tag>
+                        <el-form-item label="工作内容">
+                            <el-input type="textarea" v-model="plan.todo" rows="4"></el-input>
+                        </el-form-item>
+                        <el-form-item label="进度">
+                            <el-input type="textarea" v-model="plan.progress" rows="2"></el-input>
+                        </el-form-item>
+                    </el-form>
+                </div>
+                {% endraw %}
+            </div>
+            <span slot="footer" class="dialog-footer">
+                <el-button @click="previewDialogVisible = false">取 消</el-button>
+                <el-button type="primary" @click="confirmSavePlans" :loading="saving">确认入库</el-button>
+            </span>
+        </el-dialog>
+
+        <!-- 错误提示对话框 -->
+        <el-dialog
+            title="生成失败"
+            :visible.sync="errorDialogVisible"
+            width="40%"
+            center>
+            <div class="result-dialog-content">
+                <i class="el-icon-error result-icon result-error"></i>
+                <div class="result-message result-error">计划生成失败</div>
+                <div class="result-detail">{{ generationErrorMsg }}</div>
+            </div>
+            <span slot="footer" class="dialog-footer">
+                <el-button type="primary" @click="errorDialogVisible = false">确 定</el-button>
+            </span>
+        </el-dialog>
+    </div>
+
+    <script>
+        // 添加全局拦截器处理 401
+        axios.interceptors.response.use(response => {
+            return response;
+        }, error => {
+            if (error.response && error.response.status === 401) {
+                window.location.href = '/login';
+            }
+            return Promise.reject(error);
+        });
+
+        new Vue({
+            el: '#app',
+            data: {
+                form: {
+                    requirement: '',
+                    dateRange: []
+                },
+                saveMode: 'overwrite', // 默认覆盖模式
+                loading: false,
+                saving: false,
+                plans: [], // 所有计划列表
+                holidays: {},
+                currentDate: new Date(),
+                dialogVisible: false,
+                currentDateStr: '',
+                currentPlans: [], // 当前选中日期的计划列表
+
+                // 预览对话框
+                previewDialogVisible: false,
+                generatedPlans: [],
+
+                // 错误对话框
+                errorDialogVisible: false,
+                generationErrorMsg: ''
+            },
+            created() {
+                this.fetchPlans();
+                this.loadHolidaysForMonth(new Date());
+            },
+            watch: {
+                currentDate(newDate) {
+                    this.loadHolidaysForMonth(newDate);
+                }
+            },
+            methods: {
+                fetchPlans() {
+                    axios.get('/api/get_plan').then(res => {
+                        this.plans = res.data;
+                    }).catch(console.error);
+                },
+                loadHolidaysForMonth(date) {
+                    const year = date.getFullYear();
+                    const month = date.getMonth();
+                    const startDate = new Date(year, month, 1);
+                    startDate.setDate(startDate.getDate() - 7);
+                    const endDate = new Date(year, month + 1, 0);
+                    endDate.setDate(endDate.getDate() + 7);
+
+                    const startStr = this.formatDate(startDate);
+                    const endStr = this.formatDate(endDate);
+
+                    axios.get(`/api/get_holidays_batch?start_date=${startStr}&end_date=${endStr}`)
+                        .then(res => {
+                            this.holidays = { ...this.holidays, ...res.data };
+                        })
+                        .catch(console.error);
+                },
+                formatDate(date) {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, '0');
+                    const d = String(date.getDate()).padStart(2, '0');
+                    return `${y}-${m}-${d}`;
+                },
+                isHoliday(day) {
+                    return !!this.holidays[day];
+                },
+                getHolidayName(day) {
+                    return this.holidays[day];
+                },
+                generatePlan() {
+                    if (!this.form.requirement || !this.form.dateRange || this.form.dateRange.length < 2) {
+                        this.$message.error('请填写完整信息');
+                        return;
+                    }
+
+                    this.loading = true;
+                    // 调用生成接口（仅预览，不保存）
+                    axios.post('/api/generate_plan', {
+                        requirement: this.form.requirement,
+                        start_date: this.form.dateRange[0],
+                        end_date: this.form.dateRange[1]
+                    }).then(res => {
+                        this.generatedPlans = res.data.plan;
+                        this.previewDialogVisible = true;
+                    }).catch(err => {
+                        this.generationErrorMsg = err.response?.data?.error || err.message;
+                        this.errorDialogVisible = true;
+                    }).finally(() => {
+                        this.loading = false;
+                    });
+                },
+                confirmSavePlans() {
+                    this.saving = true;
+                    axios.post('/api/save_generated_plans', {
+                        plans: this.generatedPlans,
+                        mode: this.saveMode,
+                        start_date: this.form.dateRange[0],
+                        end_date: this.form.dateRange[1]
+                    }).then(res => {
+                        this.$message.success('计划保存成功');
+                        this.previewDialogVisible = false;
+                        this.fetchPlans(); // 刷新全局数据
+                    }).catch(err => {
+                        this.$message.error('保存失败: ' + (err.response?.data?.error || err.message));
+                    }).finally(() => {
+                        this.saving = false;
+                    });
+                },
+                getPlansForDate(day) {
+                    // 过滤出指定日期的所有计划
+                    return this.plans.filter(p => p.date === day);
+                },
+                handleDateClick(day) {
+                    this.currentDateStr = day;
+                    // 深拷贝，防止直接修改影响列表显示
+                    this.currentPlans = JSON.parse(JSON.stringify(this.getPlansForDate(day)));
+                    this.dialogVisible = true;
+                },
+                updatePlan(plan) {
+                    axios.post('/api/update_day', plan).then(res => {
+                        this.$message.success('保存成功');
+                        this.fetchPlans(); // 刷新全局数据
+                    }).catch(err => {
+                        this.$message.error('保存失败');
+                    });
+                },
+                deletePlan(id) {
+                    this.$confirm('确认删除该条计划?', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        axios.post('/api/delete_plan', { id: id }).then(res => {
+                            this.$message.success('删除成功');
+                            // 从当前弹窗列表中移除
+                            this.currentPlans = this.currentPlans.filter(p => p.id !== id);
+                            this.fetchPlans(); // 刷新全局数据
+                        });
+                    }).catch(() => {});
+                },
+                logout() {
+                    window.location.href = '/logout';
+                }
+            }
+        })
+    </script>
+</body>
+</html>
