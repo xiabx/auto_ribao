@@ -152,11 +152,17 @@ def run():
                 logger.info(f"发现 Cookie 文件: {COOKIE_FILE}，使用标准模式启动...")
                 browser = p.chromium.launch(
                     headless=True,
-                    args=["--start-maximized", "--disable-gpu"]
+                    args=[
+                        "--start-maximized", 
+                        "--disable-gpu",
+                        "--lang=zh-CN" # 强制设置浏览器语言为中文
+                    ]
                 )
-                # 创建上下文并注入 Cookie，同时设置视口
+                # 创建上下文并注入 Cookie，同时设置视口和语言环境
                 context = browser.new_context(
-                    viewport={'width': 1920, 'height': 1080}
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='zh-CN', # 设置上下文语言环境
+                    timezone_id='Asia/Shanghai' # 设置时区
                 )
                 with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
                     cookies = json.load(f)
@@ -168,8 +174,14 @@ def run():
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=USER_DATA_DIR,
                     headless=True,
-                    args=["--start-maximized", "--disable-gpu"],
-                    viewport={'width': 1920, 'height': 1080}
+                    args=[
+                        "--start-maximized", 
+                        "--disable-gpu",
+                        "--lang=zh-CN" # 强制设置浏览器语言为中文
+                    ],
+                    viewport={'width': 1920, 'height': 1080},
+                    locale='zh-CN', # 设置上下文语言环境
+                    timezone_id='Asia/Shanghai' # 设置时区
                 )
                 browser = context # 在持久化模式下，context 充当 browser
 
@@ -185,26 +197,14 @@ def run():
             time.sleep(1)
 
             # 1. 点击“添加记录”按钮
-            # 改用更通用的 CSS 选择器，不再依赖中文文本
-            logger.info("正在定位并点击“添加记录”按钮...")
-            # 假设按钮在 iframe 内，并且有一个独特的 class 或 id，这里使用一个可能的 class
-            # 如果这个选择器失效，需要根据实际页面结构调整
-            add_button_selector = 'div[class*="add-record-btn"]' # 这是一个示例，可能需要调整
-            # 增加一个更通用的备用选择器，通过图标来定位
-            add_button_selector_fallback = 'span[class*="icon-add"]'
-            
+            # 恢复使用中文文本定位，因为我们已经强制设置了浏览器语言
+            logger.info("点击“添加记录”按钮")
             iframe = page.frame_locator("#wiki-notable-iframe")
-            add_button = iframe.locator(add_button_selector).or_(iframe.locator(add_button_selector_fallback))
-            
-            # 增加等待时间，确保按钮可见
-            add_button.wait_for(timeout=30000)
-            add_button.click()
+            iframe.get_by_role("button", name="添加记录").click()
             time.sleep(1)
 
             logger.info("选择“需支持”")
-            # 这里也可能需要修改，如果“需支持”也是根据语言变化的话
-            # 暂时保留，如果再次出错，需要提供英文环境下的文本
-            iframe.locator("div").filter(has_text=re.compile(r"^(需支持|Support)$")).click()
+            iframe.locator("div").filter(has_text=re.compile(r"^需支持$")).click()
 
             # 按20下backspace
             logger.info("清除旧内容")
@@ -227,7 +227,6 @@ def run():
             time.sleep(1)
 
             logger.info("提交记录")
-            # 提交按钮也可能需要修改
             iframe.locator(".sc-1gu97lr-4 > button:nth-child(6)").click()
             time.sleep(1)
 
