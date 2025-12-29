@@ -2,7 +2,8 @@
 
 # 获取脚本所在目录的上一级目录作为项目根目录
 PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
-cd "$PROJECT_ROOT"
+# 进入 src 目录运行
+cd "$PROJECT_ROOT/src"
 
 PID_FILE="$PROJECT_ROOT/app.pid"
 

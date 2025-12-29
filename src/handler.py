@@ -26,7 +26,10 @@ COS_BUCKET = config['cos']['bucket']
 
 # 3. 其他配置
 TARGET_URL = config['app']['target_url']
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# BASE_DIR 设置为项目根目录 (src 的上一级)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 USER_DATA_DIR = os.path.join(BASE_DIR, config['app']['user_data_dir'])
 IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
 

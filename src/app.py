@@ -12,7 +12,12 @@ from db_manager import get_all_plans, update_plan, delete_plan, get_plans_by_dat
 from scheduler import start_scheduler
 from logger import logger
 
-app = Flask(__name__)
+# 获取当前文件所在目录 (src)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 模板目录在上一级 (项目根目录) 的 templates 文件夹
+TEMPLATE_DIR = os.path.join(os.path.dirname(BASE_DIR), 'templates')
+
+app = Flask(__name__, template_folder=TEMPLATE_DIR)
 
 # === 安全配置 ===
 # 设置 secret_key 用于 session 加密
