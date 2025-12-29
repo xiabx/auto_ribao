@@ -19,6 +19,7 @@ dingtalk_userdata/
 img_log/
 work_plan.db
 config.yaml
+cookie.json
 
 # OS
 .DS_Store
