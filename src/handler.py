@@ -30,7 +30,6 @@ TARGET_URL = config['app']['target_url']
 # BASE_DIR 设置为项目根目录 (src 的上一级)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-USER_DATA_DIR = os.path.join(BASE_DIR, config['app']['user_data_dir'])
 IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
 COOKIE_FILE = os.path.join(BASE_DIR, 'cookie.json')
 
@@ -131,6 +130,15 @@ def run():
         )
         return
 
+    # 2. 检查 Cookie 文件是否存在
+    if not os.path.exists(COOKIE_FILE):
+        logger.error(f"认证失败: 未找到 Cookie 文件 ({COOKIE_FILE})")
+        send_dingtalk_notification(
+            "❌ 日报填写失败",
+            f"## ❌ 认证失败\n\n**原因**: 未在项目根目录找到 `cookie.json` 文件。\n\n**解决方法**: 请在本地运行 `python script/get_cookie.py` 脚本生成该文件，并上传到服务器。"
+        )
+        return
+
     # 获取第一条计划（假设每天合并为一条）
     today_plan = plans[0]
     todo_content = today_plan['todo']
@@ -143,49 +151,29 @@ def run():
     # 使用 sync_playwright 上下文管理器
     with sync_playwright() as p:
         browser = None
-        context = None
         try:
             logger.info("启动浏览器...")
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--start-maximized", 
+                    "--disable-gpu",
+                    "--lang=zh-CN" # 强制设置浏览器语言为中文
+                ]
+            )
             
-            # 优先检查是否存在 cookie.json
-            if os.path.exists(COOKIE_FILE):
-                logger.info(f"发现 Cookie 文件: {COOKIE_FILE}，使用标准模式启动...")
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=[
-                        "--start-maximized", 
-                        "--disable-gpu",
-                        "--lang=zh-CN" # 强制设置浏览器语言为中文
-                    ]
-                )
-                # 创建上下文并注入 Cookie，同时设置视口和语言环境
-                context = browser.new_context(
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='zh-CN', # 设置上下文语言环境
-                    timezone_id='Asia/Shanghai' # 设置时区
-                )
-                with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
-                    cookies = json.load(f)
-                    context.add_cookies(cookies)
-                logger.info("Cookie 注入成功")
-            else:
-                logger.warning("未找到 cookie.json，尝试使用持久化上下文 (可能不稳定)...")
-                # 回退到旧模式
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=USER_DATA_DIR,
-                    headless=True,
-                    args=[
-                        "--start-maximized", 
-                        "--disable-gpu",
-                        "--lang=zh-CN" # 强制设置浏览器语言为中文
-                    ],
-                    viewport={'width': 1920, 'height': 1080},
-                    locale='zh-CN', # 设置上下文语言环境
-                    timezone_id='Asia/Shanghai' # 设置时区
-                )
-                browser = context # 在持久化模式下，context 充当 browser
+            # 创建上下文并注入 Cookie
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                locale='zh-CN', # 设置上下文语言环境
+                timezone_id='Asia/Shanghai' # 设置时区
+            )
+            with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
+                cookies = json.load(f)
+                context.add_cookies(cookies)
+            logger.info("Cookie 注入成功")
 
-            page = context.new_page() if browser != context else context.pages[0]
+            page = context.new_page()
             screenshot_path = ""
 
             logger.info(f"正在打开页面: {TARGET_URL}")
@@ -197,7 +185,6 @@ def run():
             time.sleep(1)
 
             # 1. 点击“添加记录”按钮
-            # 恢复使用中文文本定位，因为我们已经强制设置了浏览器语言
             logger.info("点击“添加记录”按钮")
             iframe = page.frame_locator("#wiki-notable-iframe")
             iframe.get_by_role("button", name="添加记录").click()
@@ -248,17 +235,13 @@ def run():
         except Exception as e:
             logger.error(f"❌ 发生错误: {e}", exc_info=True)
             
-            # 尝试截图（如果浏览器已启动）
             image_url = None
-            if context: # 使用 context 检查更准确
+            if 'page' in locals():
                 try:
-                    # 尝试获取当前页面或新建页面截图
-                    page_to_capture = page if 'page' in locals() else (context.pages[0] if context.pages else None)
-                    if page_to_capture:
-                        screenshot_name = f"daily_report_error_{get_timestamp()}.png"
-                        screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
-                        page_to_capture.screenshot(path=screenshot_path)
-                        image_url = upload_to_cos_and_get_url(screenshot_path)
+                    screenshot_name = f"daily_report_error_{get_timestamp()}.png"
+                    screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
+                    page.screenshot(path=screenshot_path)
+                    image_url = upload_to_cos_and_get_url(screenshot_path)
                 except Exception as screenshot_error:
                     logger.error(f"截图失败: {screenshot_error}")
 
@@ -276,13 +259,6 @@ def run():
                     logger.info("浏览器已关闭")
                 except Exception as e:
                     logger.warning(f"关闭浏览器时出错 (可能已关闭): {e}")
-            elif context: # 如果是 persistent context，browser 变量可能指向 context
-                 try:
-                    context.close()
-                    logger.info("上下文已关闭")
-                 except Exception as e:
-                    pass
-
 
 if __name__ == "__main__":
     run()

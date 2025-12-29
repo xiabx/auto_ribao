@@ -14,9 +14,11 @@ ENV/
 
 # Project specific
 log/
+logs/
 *.log
 dingtalk_userdata/
 img_log/
+img_logs/
 work_plan.db
 config.yaml
 cookie.json
