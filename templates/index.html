@@ -13,6 +13,7 @@
         .container { max-width: 1200px; margin: 0 auto; }
         .card { background: #fff; border-radius: 4px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header-right { display: flex; align-items: center; }
         .calendar-day { height: 100%; padding: 5px; position: relative; overflow-y: auto; }
         .calendar-day.has-plan { background-color: #f0f9eb; }
         .calendar-day.is-holiday { background-color: #fef0f0; }
@@ -21,7 +22,6 @@
         .calendar-day .holiday-tag { font-size: 10px; color: #f56c6c; position: absolute; top: 5px; right: 5px; }
         .el-calendar-table .el-calendar-day { height: 120px; }
         .form-container { max-width: 800px; }
-        .logout-btn { float: right; }
         .plan-list-item { border-bottom: 1px solid #eee; padding: 10px 0; }
         .plan-list-item:last-child { border-bottom: none; }
         .result-dialog-content { text-align: center; padding: 20px; }
@@ -30,8 +30,8 @@
         .result-error { color: #F56C6C; }
         .result-message { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
         .result-detail { color: #666; font-size: 14px; white-space: pre-wrap; text-align: left; background: #f9f9f9; padding: 10px; border-radius: 4px; margin-top: 10px; max-height: 200px; overflow-y: auto; }
-        .schedule-info { font-size: 14px; color: #606266; margin-right: 20px; }
-        .schedule-edit-btn { padding: 0; }
+        .schedule-info { font-size: 14px; color: #606266; margin-right: 20px; display: flex; align-items: center; }
+        .schedule-edit-btn { padding: 0; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -39,15 +39,16 @@
         <div class="card">
             <div class="header">
                 <h2>📅 工作日报生成器</h2>
-                <div>
+                <div class="header-right">
                     <span class="schedule-info">
+                        <i class="el-icon-time" style="margin-right: 5px;"></i>
                         {% raw %}
-                        <span v-if="currentScheduleTime">任务将在每天 {{ currentScheduleTime }} 执行</span>
+                        <span v-if="currentScheduleTime">每天 {{ currentScheduleTime }} 执行</span>
                         <span v-else>定时任务加载中...</span>
                         {% endraw %}
                         <el-button type="text" class="schedule-edit-btn" icon="el-icon-edit" @click="openScheduleDialog"></el-button>
                     </span>
-                    <el-button type="text" class="logout-btn" @click="logout">退出登录</el-button>
+                    <el-button type="danger" plain size="small" icon="el-icon-switch-button" @click="logout">退出</el-button>
                 </div>
             </div>
 
@@ -97,9 +98,7 @@
                             {{ getHolidayName(data.day) }}
                         </div>
 
-                        <div v-for="plan in getPlansForDate(data.day)" :key="plan.id" class="plan-item">
-                            {{ plan.todo ? plan.todo.trim() : '' }}
-                        </div>
+                        <div v-for="plan in getPlansForDate(data.day)" :key="plan.id" class="plan-item">{{ plan.todo ? plan.todo.trim() : '' }}</div>
                     </div>
                     {% endraw %}
                 </template>

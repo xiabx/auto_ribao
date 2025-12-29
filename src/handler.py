@@ -148,6 +148,11 @@ def run():
     if not os.path.exists(IMG_LOG_DIR):
         os.makedirs(IMG_LOG_DIR)
 
+    # 强制移除 DISPLAY 环境变量，防止 Xshell 触发 Xmanager 弹窗
+    if 'DISPLAY' in os.environ:
+        logger.info("检测到 DISPLAY 环境变量，正在移除以避免 X11 转发干扰...")
+        del os.environ['DISPLAY']
+
     # 使用 sync_playwright 上下文管理器
     with sync_playwright() as p:
         browser = None
