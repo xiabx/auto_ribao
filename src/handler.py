@@ -139,20 +139,21 @@ def run():
     if not os.path.exists(IMG_LOG_DIR):
         os.makedirs(IMG_LOG_DIR)
 
-    with sync_playwright() as p:
-        logger.info("启动浏览器...")
-        browser = p.chromium.launch_persistent_context(
-            user_data_dir=USER_DATA_DIR,
-            headless=True,  # 改为 True 以便在后台静默运行
-            channel="chrome",
-            args=["--start-maximized"],
-            no_viewport=True
-        )
+    browser = None
+    try:
+        with sync_playwright() as p:
+            logger.info("启动浏览器...")
+            browser = p.chromium.launch_persistent_context(
+                user_data_dir=USER_DATA_DIR,
+                headless=True,
+                channel="chrome",
+                args=["--start-maximized"],
+                no_viewport=True
+            )
 
-        page = browser.pages[0]
-        screenshot_path = ""
+            page = browser.pages[0]
+            screenshot_path = ""
 
-        try:
             logger.info(f"正在打开页面: {TARGET_URL}")
             page.goto(TARGET_URL)
             page.wait_for_load_state("domcontentloaded")
@@ -208,22 +209,29 @@ def run():
                 image_url
             )
 
-        except Exception as e:
-            logger.error(f"❌ 发生错误: {e}", exc_info=True)
-            screenshot_name = f"daily_report_error_{get_timestamp()}.png"
-            screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
-            page.screenshot(path=screenshot_path)
+    except Exception as e:
+        logger.error(f"❌ 发生错误: {e}", exc_info=True)
+        
+        # 尝试截图（如果浏览器已启动）
+        image_url = None
+        if browser and browser.pages:
+            try:
+                page = browser.pages[0]
+                screenshot_name = f"daily_report_error_{get_timestamp()}.png"
+                screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
+                page.screenshot(path=screenshot_path)
+                image_url = upload_to_cos_and_get_url(screenshot_path)
+            except Exception as screenshot_error:
+                logger.error(f"截图失败: {screenshot_error}")
 
-            # 错误时也可以尝试上传截图
-            image_url = upload_to_cos_and_get_url(screenshot_path)
+        send_dingtalk_notification(
+            "日报填写失败",
+            f"## ❌ 日报填写失败\n\n**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n**错误信息**: {str(e)}",
+            image_url
+        )
 
-            send_dingtalk_notification(
-                "日报填写失败",
-                f"## ❌ 日报填写失败\n\n**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n**错误信息**: {str(e)}",
-                image_url
-            )
-
-        finally:
+    finally:
+        if browser:
             time.sleep(2)
             browser.close()
             logger.info("浏览器已关闭")

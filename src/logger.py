@@ -3,8 +3,12 @@ import os
 from logging.handlers import TimedRotatingFileHandler
 from config_loader import config
 
+# 获取当前文件所在目录的上一级目录 (项目根目录)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 获取日志目录配置，默认为 'log'
-LOG_DIR = config['app'].get('log_dir', 'log')
+log_dir_name = config['app'].get('log_dir', 'log')
+LOG_DIR = os.path.join(BASE_DIR, log_dir_name)
 
 # 确保日志目录存在
 if not os.path.exists(LOG_DIR):
