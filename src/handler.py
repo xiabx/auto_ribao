@@ -146,7 +146,7 @@ def run():
             browser = p.chromium.launch_persistent_context(
                 user_data_dir=USER_DATA_DIR,
                 headless=True,
-                channel="chrome",
+                # channel="chrome",
                 args=["--start-maximized"],
                 no_viewport=True
             )
