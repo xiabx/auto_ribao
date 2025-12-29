@@ -20,7 +20,7 @@ if [ -f "$PID_FILE" ]; then
 fi
 
 # 确保日志目录存在
-mkdir -p "$PROJECT_ROOT/log"
+mkdir -p "$PROJECT_ROOT/logs"
 
 # 检测 python 命令，优先使用 python3
 if command -v python3 &> /dev/null; then
