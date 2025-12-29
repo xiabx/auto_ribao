@@ -87,7 +87,7 @@
                         </div>
 
                         <div v-for="plan in getPlansForDate(data.day)" :key="plan.id" class="plan-item">
-                            {{ plan.todo }}
+                            {{ plan.todo ? plan.todo.trim() : '' }}
                         </div>
                     </div>
                     {% endraw %}
