@@ -8,7 +8,7 @@ from ai_planner import generate_plan
 from config_loader import config
 from functools import wraps
 from workday_utils import get_holiday_info, get_holidays_in_range
-from db_manager import get_all_plans, update_plan, delete_plan, get_plans_by_date, add_or_update_plan, clear_plans_by_date_range
+from db_manager import get_all_plans, update_plan, delete_plan, get_plans_by_date, add_or_update_plan, clear_plans_by_date_range, clear_all_plans
 from scheduler import start_scheduler
 from logger import logger
 
@@ -193,6 +193,33 @@ def api_delete_plan():
         return jsonify({"message": "删除成功"})
     except Exception as e:
         logger.error(f"删除计划失败: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@bp.route('/api/clear_plans', methods=['POST'])
+@login_required
+def api_clear_plans():
+    data = request.json
+    clear_type = data.get('type') # 'all' or 'range'
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    
+    user = session.get('user')
+    
+    try:
+        if clear_type == 'all':
+            clear_all_plans()
+            logger.info(f"用户 {user} 清除了所有计划")
+            return jsonify({"message": "所有计划已清除"})
+        elif clear_type == 'range':
+            if not start_date or not end_date:
+                return jsonify({"error": "缺少日期范围参数"}), 400
+            clear_plans_by_date_range(start_date, end_date)
+            logger.info(f"用户 {user} 清除了 {start_date} 至 {end_date} 的计划")
+            return jsonify({"message": "指定范围内的计划已清除"})
+        else:
+            return jsonify({"error": "无效的清除类型"}), 400
+    except Exception as e:
+        logger.error(f"清除计划失败: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @bp.route('/api/check_holiday', methods=['GET'])

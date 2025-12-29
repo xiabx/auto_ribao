@@ -3,7 +3,8 @@ import os
 import re
 from config_loader import config
 
-DB_FILE = config['app'].get('db_file', 'work_plan.db')
+# 数据库文件位于项目根目录
+DB_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), config['app'].get('db_file', 'work_plan.db'))
 
 def init_db():
     """初始化数据库表"""
@@ -128,6 +129,16 @@ def clear_plans_by_date_range(start_date, end_date):
     cursor = conn.cursor()
     
     cursor.execute('DELETE FROM work_plans WHERE date >= ? AND date <= ?', (start_date, end_date))
+    
+    conn.commit()
+    conn.close()
+
+def clear_all_plans():
+    """清除所有计划"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('DELETE FROM work_plans')
     
     conn.commit()
     conn.close()
