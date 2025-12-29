@@ -228,6 +228,16 @@ def run():
             page.screenshot(path=screenshot_path)
             logger.info(f"截图已保存: {screenshot_path}")
 
+            # --- 保存最新的 Cookie ---
+            try:
+                updated_cookies = context.cookies()
+                with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
+                logger.info(f"Cookies 已更新并保存至 {COOKIE_FILE}")
+            except Exception as cookie_err:
+                logger.error(f"保存 Cookie 失败: {cookie_err}")
+            # ---------------------------
+
             # --- 核心：上传图片并发送通知 ---
             image_url = upload_to_cos_and_get_url(screenshot_path)
 
