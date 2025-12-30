@@ -6,6 +6,7 @@ import os
 import sys
 import ssl
 import socket
+import getpass
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from qcloud_cos import CosConfig
@@ -105,7 +106,7 @@ def send_dingtalk_notification(title, content, image_url=None):
     # 如果有图片链接，添加到 Markdown 内容中
     final_text = content
     if image_url:
-        final_text += f"\n\n![截图]({image_url})\n>"
+        final_text += f"\n\n![截图]({image_url})\n> 截图链接有效期1小时"
 
     data = {
         "msgtype": "markdown",
@@ -134,15 +135,40 @@ def send_dingtalk_notification(title, content, image_url=None):
 
 
 def run():
+    # --- 调试信息：记录执行环境 ---
+    try:
+        logger.info("=" * 40)
+        logger.info("🚀 任务开始执行 (Environment Debug)")
+        logger.info(f"📅 当前系统时间: {datetime.now()}")
+        logger.info(f"🆔 进程 PID: {os.getpid()}")
+        logger.info(f"👤 运行用户: {getpass.getuser()}")
+        logger.info(f"📂 工作目录: {os.getcwd()}")
+        logger.info(f"📜 启动脚本: {sys.argv[0]}")
+        logger.info("=" * 40)
+    except Exception as e:
+        logger.error(f"记录调试信息失败: {e}")
+    # ---------------------------
+
     # 1. 检查今天是否有日报计划
     today_str = datetime.now().strftime("%Y-%m-%d")
     plans = get_plans_by_date(today_str)
     
     if not plans:
         logger.warning(f"今天 ({today_str}) 没有找到日报计划，发送提醒...")
+        
+        # 获取调试信息用于通知
+        server_ip = get_host_ip()
+        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         send_dingtalk_notification(
             "⚠️ 日报未填写提醒",
-            f"## ⚠️ 今日 ({today_str}) 尚未生成日报计划\n\n请尽快登录系统生成今日日报，以便自动填写。"
+            f"## ⚠️ 今日 ({today_str}) 尚未生成日报计划\n\n"
+            f"请尽快登录系统生成今日日报，以便自动填写。\n\n"
+            f"--- \n"
+            f"**调试信息**:\n"
+            f"- IP: {server_ip}\n"
+            f"- Time: {current_time}\n"
+            f"- Script: {os.path.basename(sys.argv[0])}"
         )
         return
 
