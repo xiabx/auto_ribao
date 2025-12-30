@@ -5,6 +5,7 @@ import urllib.request
 import os
 import sys
 import ssl
+import socket
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from qcloud_cos import CosConfig
@@ -37,6 +38,21 @@ COOKIE_FILE = os.path.join(BASE_DIR, 'cookie.json')
 
 def get_timestamp():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def get_host_ip():
+    """获取本机IP"""
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        if s:
+            s.close()
+    return ip
 
 
 def upload_to_cos_and_get_url(local_file_path):
@@ -89,7 +105,7 @@ def send_dingtalk_notification(title, content, image_url=None):
     # 如果有图片链接，添加到 Markdown 内容中
     final_text = content
     if image_url:
-        final_text += f"\n\n![截图]({image_url})\n> 截图链接有效期1小时"
+        final_text += f"\n\n![截图]({image_url})\n>"
 
     data = {
         "msgtype": "markdown",
@@ -240,10 +256,17 @@ def run():
 
             # --- 核心：上传图片并发送通知 ---
             image_url = upload_to_cos_and_get_url(screenshot_path)
+            
+            server_ip = get_host_ip()
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             send_dingtalk_notification(
                 "日报填写成功",
-                f"## ✅ 日报填写成功\n\n**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n**状态**: 已归档至腾讯云\n\n**内容摘要**:\n{todo_content}",
+                f"## ✅ 日报填写成功\n\n"
+                f"**服务器IP**: {server_ip}\n"
+                f"**执行时间**: {current_time}\n\n"
+                f"**状态**: 已归档至腾讯云\n\n"
+                f"**内容摘要**:\n{todo_content}",
                 image_url
             )
 
@@ -260,9 +283,15 @@ def run():
                 except Exception as screenshot_error:
                     logger.error(f"截图失败: {screenshot_error}")
 
+            server_ip = get_host_ip()
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
             send_dingtalk_notification(
                 "日报填写失败",
-                f"## ❌ 日报填写失败\n\n**时间**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n**错误信息**: {str(e)}",
+                f"## ❌ 日报填写失败\n\n"
+                f"**服务器IP**: {server_ip}\n"
+                f"**执行时间**: {current_time}\n\n"
+                f"**错误信息**: {str(e)}",
                 image_url
             )
 
