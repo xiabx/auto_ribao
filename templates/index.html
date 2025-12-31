@@ -49,6 +49,7 @@
                         {% endraw %}
                         <el-button type="text" class="schedule-edit-btn" icon="el-icon-edit" @click="openScheduleDialog"></el-button>
                     </span>
+                    <el-button type="primary" size="small" icon="el-icon-video-play" @click="triggerFill" :loading="filling" style="margin-right: 10px;">立即填写</el-button>
                     <el-button type="danger" plain size="small" icon="el-icon-switch-button" @click="logout">退出</el-button>
                 </div>
             </div>
@@ -276,7 +277,10 @@
                 currentScheduleTime: '',
                 scheduleDialogVisible: false,
                 newScheduleTime: '',
-                updatingSchedule: false
+                updatingSchedule: false,
+                
+                // 立即填写相关
+                filling: false
             },
             created() {
                 this.fetchPlans();
@@ -469,6 +473,25 @@
                         .finally(() => {
                             this.updatingSchedule = false;
                         });
+                },
+                triggerFill() {
+                    this.$confirm('确定要立即执行今天的日报填写任务吗？', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.filling = true;
+                        axios.post('/api/trigger_fill')
+                            .then(res => {
+                                this.$message.success(res.data.message);
+                            })
+                            .catch(err => {
+                                this.$message.error(err.response?.data?.error || '执行失败');
+                            })
+                            .finally(() => {
+                                this.filling = false;
+                            });
+                    }).catch(() => {});
                 }
             }
         })

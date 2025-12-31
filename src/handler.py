@@ -7,6 +7,7 @@ import sys
 import ssl
 import socket
 import getpass
+import platform
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from qcloud_cos import CosConfig
@@ -134,7 +135,12 @@ def send_dingtalk_notification(title, content, image_url=None):
         logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
 
 
-def run():
+def run(is_api_call=False):
+    """
+    执行日报填写任务
+    :param is_api_call: 是否为 API 调用，如果是，则返回执行结果字典
+    :return: 如果 is_api_call 为 True，返回 {"success": bool, "message": str}
+    """
     # --- 调试信息：记录执行环境 ---
     try:
         logger.info("=" * 40)
@@ -154,11 +160,13 @@ def run():
     plans = get_plans_by_date(today_str)
     
     if not plans:
-        logger.warning(f"今天 ({today_str}) 没有找到日报计划，发送提醒...")
+        msg = f"今天 ({today_str}) 没有找到日报计划，发送提醒..."
+        logger.warning(msg)
         
         # 获取调试信息用于通知
         server_ip = get_host_ip()
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        os_info = f"{platform.system()} {platform.release()}"
         
         send_dingtalk_notification(
             "⚠️ 日报未填写提醒",
@@ -167,18 +175,24 @@ def run():
             f"--- \n"
             f"**调试信息**:\n"
             f"- IP: {server_ip}\n"
+            f"- OS: {os_info}\n"
             f"- Time: {current_time}\n"
             f"- Script: {os.path.basename(sys.argv[0])}"
         )
+        if is_api_call:
+            return {"success": False, "message": msg}
         return
 
     # 2. 检查 Cookie 文件是否存在
     if not os.path.exists(COOKIE_FILE):
-        logger.error(f"认证失败: 未找到 Cookie 文件 ({COOKIE_FILE})")
+        msg = f"认证失败: 未找到 Cookie 文件 ({COOKIE_FILE})"
+        logger.error(msg)
         send_dingtalk_notification(
             "❌ 日报填写失败",
             f"## ❌ 认证失败\n\n**原因**: 未在项目根目录找到 `cookie.json` 文件。\n\n**解决方法**: 请在本地运行 `python script/get_cookie.py` 脚本生成该文件，并上传到服务器。"
         )
+        if is_api_call:
+            return {"success": False, "message": msg}
         return
 
     # 获取第一条计划（假设每天合并为一条）
@@ -285,16 +299,21 @@ def run():
             
             server_ip = get_host_ip()
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            os_info = f"{platform.system()} {platform.release()}"
 
             send_dingtalk_notification(
                 "日报填写成功",
                 f"## ✅ 日报填写成功\n\n"
                 f"**服务器IP**: {server_ip}\n"
+                f"**操作系统**: {os_info}\n"
                 f"**执行时间**: {current_time}\n\n"
                 f"**状态**: 已归档至腾讯云\n\n"
                 f"**内容摘要**:\n{todo_content}",
                 image_url
             )
+            
+            if is_api_call:
+                return {"success": True, "message": "日报填写成功"}
 
         except Exception as e:
             logger.error(f"❌ 发生错误: {e}", exc_info=True)
@@ -311,15 +330,20 @@ def run():
 
             server_ip = get_host_ip()
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            os_info = f"{platform.system()} {platform.release()}"
 
             send_dingtalk_notification(
                 "日报填写失败",
                 f"## ❌ 日报填写失败\n\n"
                 f"**服务器IP**: {server_ip}\n"
+                f"**操作系统**: {os_info}\n"
                 f"**执行时间**: {current_time}\n\n"
                 f"**错误信息**: {str(e)}",
                 image_url
             )
+            
+            if is_api_call:
+                return {"success": False, "message": f"执行失败: {str(e)}"}
 
         finally:
             if browser:

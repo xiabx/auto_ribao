@@ -11,6 +11,7 @@ from workday_utils import get_holiday_info, get_holidays_in_range
 from db_manager import get_all_plans, update_plan, delete_plan, get_plans_by_date, add_or_update_plan, clear_plans_by_date_range, clear_all_plans
 from scheduler import start_scheduler, get_current_schedule_time, update_schedule_time
 from logger import logger
+from handler import run as run_handler
 
 # 获取当前文件所在目录 (src)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -270,6 +271,22 @@ def api_update_schedule_time():
         return jsonify({"message": message})
     else:
         return jsonify({"error": message}), 400
+
+@bp.route('/api/trigger_fill', methods=['POST'])
+@login_required
+def api_trigger_fill():
+    user = session.get('user')
+    logger.info(f"用户 {user} 手动触发日报填写任务")
+    
+    try:
+        result = run_handler(is_api_call=True)
+        if result and result.get('success'):
+            return jsonify({"message": result.get('message', '执行成功')})
+        else:
+            return jsonify({"error": result.get('message', '执行失败') if result else '执行失败'}), 500
+    except Exception as e:
+        logger.error(f"手动触发任务失败: {e}", exc_info=True)
+        return jsonify({"error": f"系统错误: {str(e)}"}), 500
 
 # 注册 Blueprint
 app.register_blueprint(bp)
