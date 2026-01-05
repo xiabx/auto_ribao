@@ -80,15 +80,15 @@ def start_scheduler():
     with schedule_lock:
         # 1. 日报填写任务
         job_instance = schedule.every().day.at(time_str).do(job)
-        # 2. Session 保活任务 (每6小时执行一次)
-        schedule.every(6).hours.do(keep_alive)
+        # 2. Session 保活任务 (每3小时执行一次)
+        schedule.every(3).hours.do(keep_alive)
     
     # 初始化全局时间变量
     with _current_schedule_time_lock:
         _current_schedule_time = time_str
         
     logger.info(f"定时任务已设置: 每天 {_current_schedule_time} 执行。下次预计执行时间 (服务器时间): {job_instance.next_run}")
-    logger.info("保活任务已设置: 每 6 小时执行一次")
+    logger.info("保活任务已设置: 每 3 小时执行一次")
 
     while True:
         with schedule_lock:
