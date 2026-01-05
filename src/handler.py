@@ -188,6 +188,12 @@ def keep_alive():
                 
                 logger.info("✅ 登录状态有效")
                 
+                # 刷新页面以确保 Session 延期
+                logger.info("🔄 刷新页面以确保 Session 延期...")
+                page.reload()
+                page.wait_for_load_state("domcontentloaded")
+                time.sleep(2)
+                
                 # Save refreshed cookies
                 updated_cookies = context.cookies()
                 with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
