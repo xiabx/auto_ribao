@@ -330,7 +330,7 @@ def run(is_api_call=False):
             logger.info("选择“需支持”")
             iframe.locator("div").filter(has_text=re.compile(r"^需支持$")).click()
 
-            # 按20下backspace
+            # 按下backspace
             logger.info("清除旧内容")
             for _ in range(15):
                 iframe.get_by_role("textbox").nth(4).press("Backspace")
@@ -342,11 +342,11 @@ def run(is_api_call=False):
             time.sleep(1)
 
             logger.info("点击下一个输入框")
-            iframe.locator(
-                "div:nth-child(3) > .field > .sc-dx7zg8-0 > .sc-dx7zg8-3 > .sc-ryhpjr-0 > .sc-elxj4z-0 > .sc-elxj4z-1 > .content > div > .sc-dABzDS").click()
-            time.sleep(1)
-
+            # 移除旧的复杂选择器点击，直接定位第5个输入框
+            # iframe.locator("div:nth-child(3) > ...").click() 
+            
             logger.info(f"填写迭代事项: {progress_content[:20]}...")
+            # 直接填写第5个输入框，无需先点击
             iframe.get_by_role("textbox").nth(5).fill(progress_content)
             time.sleep(1)
 
