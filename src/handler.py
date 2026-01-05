@@ -135,6 +135,82 @@ def send_dingtalk_notification(title, content, image_url=None):
         logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
 
 
+def keep_alive():
+    """
+    后台保活任务：访问页面以刷新 Session，并检查 Cookie 是否有效
+    """
+    try:
+        logger.info("=" * 40)
+        logger.info("🔄 [保活] 开始执行 Cookie 保活任务")
+        
+        if not os.path.exists(COOKIE_FILE):
+            logger.warning("Cookie 文件不存在，跳过保活")
+            return
+
+        # 强制移除 DISPLAY
+        if 'DISPLAY' in os.environ:
+            del os.environ['DISPLAY']
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"]
+            )
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                locale='zh-CN',
+                timezone_id='Asia/Shanghai'
+            )
+            
+            # Load Cookies
+            try:
+                with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
+                    cookies = json.load(f)
+                    context.add_cookies(cookies)
+            except Exception as e:
+                logger.error(f"加载 Cookie 失败: {e}")
+                browser.close()
+                return
+
+            page = context.new_page()
+            
+            logger.info(f"正在访问页面: {TARGET_URL}")
+            try:
+                page.goto(TARGET_URL, timeout=60000)
+                page.wait_for_load_state("domcontentloaded")
+                time.sleep(2) # Wait for redirects
+                
+                # Check login status
+                # Using the same check as run(): iframe -> button
+                iframe = page.frame_locator("#wiki-notable-iframe")
+                # Wait up to 10s
+                iframe.get_by_role("button", name="添加记录").wait_for(timeout=10000)
+                
+                logger.info("✅ 登录状态有效")
+                
+                # Save refreshed cookies
+                updated_cookies = context.cookies()
+                with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
+                logger.info(f"Cookie 已刷新并保存")
+                
+            except Exception as e:
+                logger.warning(f"⚠️ 登录状态可能已失效: {e}")
+                # Send notification
+                server_ip = get_host_ip()
+                os_info = f"{platform.system()} {platform.release()}"
+                send_dingtalk_notification(
+                    "⚠️ Cookie 保活失败",
+                    f"## ⚠️ Cookie 保活失败\n\n检测到登录状态可能已失效，请及时重新登录。\n\n**服务器IP**: {server_ip}\n**操作系统**: {os_info}\n**错误**: {str(e)}"
+                )
+            finally:
+                browser.close()
+                logger.info("🔄 [保活] 任务结束")
+                
+    except Exception as e:
+        logger.error(f"保活任务异常: {e}")
+
+
 def run(is_api_call=False):
     """
     执行日报填写任务
@@ -284,15 +360,15 @@ def run(is_api_call=False):
             page.screenshot(path=screenshot_path)
             logger.info(f"截图已保存: {screenshot_path}")
 
-            # # --- 保存最新的 Cookie ---
-            # try:
-            #     updated_cookies = context.cookies()
-            #     with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
-            #         json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
-            #     logger.info(f"Cookies 已更新并保存至 {COOKIE_FILE}")
-            # except Exception as cookie_err:
-            #     logger.error(f"保存 Cookie 失败: {cookie_err}")
-            # # ---------------------------
+            # --- 保存最新的 Cookie ---
+            try:
+                updated_cookies = context.cookies()
+                with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
+                logger.info(f"Cookies 已更新并保存至 {COOKIE_FILE}")
+            except Exception as cookie_err:
+                logger.error(f"保存 Cookie 失败: {cookie_err}")
+            # ---------------------------
 
             # --- 核心：上传图片并发送通知 ---
             image_url = upload_to_cos_and_get_url(screenshot_path)
