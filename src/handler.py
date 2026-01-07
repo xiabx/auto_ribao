@@ -188,13 +188,7 @@ def keep_alive():
                 
             except Exception as e:
                 logger.warning(f"⚠️ 登录状态可能已失效: {e}")
-                # Send notification
-                server_ip = get_host_ip()
-                os_info = f"{platform.system()} {platform.release()}"
-                send_dingtalk_notification(
-                    "⚠️ Cookie 保活失败",
-                    f"## ⚠️ Cookie 保活失败\n\n检测到登录状态可能已失效，请及时重新登录。\n\n**服务器IP**: {server_ip}\n**操作系统**: {os_info}\n**错误**: {str(e)}"
-                )
+                # 保活失败不发送钉钉通知，仅记录日志
             finally:
                 context.close()
                 logger.info("🔄 [保活] 任务结束")
