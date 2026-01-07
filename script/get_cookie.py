@@ -1,22 +1,33 @@
 import time
-import json
 import os
 from playwright.sync_api import sync_playwright
 from config_loader import config
 
 # --- 配置 ---
-# 目标登录页面，通常是主页或登录页
+# 目标登录页面
 LOGIN_URL = config['app']['target_url']
-# Cookie 保存路径 (项目根目录)
-COOKIE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'cookie.json')
+# 浏览器数据保存路径 (项目根目录/browser_data)
+USER_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'browser_data')
 
 
 def get_cookie():
+    # 确保目录存在
+    if not os.path.exists(USER_DATA_DIR):
+        os.makedirs(USER_DATA_DIR)
+
+    print(f"浏览器数据将保存至: {USER_DATA_DIR}")
+
     with sync_playwright() as p:
-        # 启动一个带界面的浏览器，方便手动登录
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context()
-        page = context.new_page()
+        # 使用 launch_persistent_context 启动持久化上下文
+        # 这会自动保存 Cookies、Local Storage 等信息到指定目录
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=USER_DATA_DIR,
+            headless=False,  # 有界面，方便手动登录
+            args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"],
+            viewport=None # 禁用默认视口大小，允许最大化
+        )
+        
+        page = context.pages[0] if context.pages else context.new_page()
 
         print(f"正在打开登录页面: {LOGIN_URL}")
         page.goto(LOGIN_URL)
@@ -28,15 +39,11 @@ def get_cookie():
 
         input("登录完成后请按 Enter 键...")
 
-        # 获取并保存 Cookie
-        cookies = context.cookies()
-        with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cookies, f, ensure_ascii=False, indent=4)
-
-        print(f"✅ Cookie 已成功保存到: {COOKIE_FILE}")
+        # 持久化上下文会自动保存状态，无需手动 dump cookies
+        print(f"✅ 登录状态已保存到: {USER_DATA_DIR}")
         print("现在你可以关闭浏览器窗口了。")
 
-        browser.close()
+        context.close()
 
 
 if __name__ == "__main__":

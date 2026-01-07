@@ -34,7 +34,8 @@ TARGET_URL = config['app']['target_url']
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
-COOKIE_FILE = os.path.join(BASE_DIR, 'cookie.json')
+# 浏览器数据保存路径 (项目根目录/browser_data)
+USER_DATA_DIR = os.path.join(BASE_DIR, 'browser_data')
 
 # --- 配置结束 ---
 
@@ -143,8 +144,8 @@ def keep_alive():
         logger.info("=" * 40)
         logger.info("🔄 [保活] 开始执行 Cookie 保活任务")
         
-        if not os.path.exists(COOKIE_FILE):
-            logger.warning("Cookie 文件不存在，跳过保活")
+        if not os.path.exists(USER_DATA_DIR):
+            logger.warning("浏览器数据目录不存在，跳过保活")
             return
 
         # 强制移除 DISPLAY
@@ -152,27 +153,17 @@ def keep_alive():
             del os.environ['DISPLAY']
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(
+            # 使用持久化上下文
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=USER_DATA_DIR,
                 headless=True,
-                args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"]
-            )
-            context = browser.new_context(
+                args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN',
                 timezone_id='Asia/Shanghai'
             )
             
-            # Load Cookies
-            try:
-                with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
-                    cookies = json.load(f)
-                    context.add_cookies(cookies)
-            except Exception as e:
-                logger.error(f"加载 Cookie 失败: {e}")
-                browser.close()
-                return
-
-            page = context.new_page()
+            page = context.pages[0] if context.pages else context.new_page()
             
             logger.info(f"正在访问页面: {TARGET_URL}")
             try:
@@ -181,7 +172,6 @@ def keep_alive():
                 time.sleep(2) # Wait for redirects
                 
                 # Check login status
-                # Using the same check as run(): iframe -> button
                 iframe = page.frame_locator("#wiki-notable-iframe")
                 # Wait up to 10s
                 iframe.get_by_role("button", name="添加记录").wait_for(timeout=10000)
@@ -194,11 +184,7 @@ def keep_alive():
                 page.wait_for_load_state("domcontentloaded")
                 time.sleep(2)
                 
-                # Save refreshed cookies
-                updated_cookies = context.cookies()
-                with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
-                logger.info(f"Cookie 已刷新并保存")
+                logger.info(f"Session 已刷新")
                 
             except Exception as e:
                 logger.warning(f"⚠️ 登录状态可能已失效: {e}")
@@ -210,7 +196,7 @@ def keep_alive():
                     f"## ⚠️ Cookie 保活失败\n\n检测到登录状态可能已失效，请及时重新登录。\n\n**服务器IP**: {server_ip}\n**操作系统**: {os_info}\n**错误**: {str(e)}"
                 )
             finally:
-                browser.close()
+                context.close()
                 logger.info("🔄 [保活] 任务结束")
                 
     except Exception as e:
@@ -265,13 +251,13 @@ def run(is_api_call=False):
             return {"success": False, "message": msg}
         return
 
-    # 2. 检查 Cookie 文件是否存在
-    if not os.path.exists(COOKIE_FILE):
-        msg = f"认证失败: 未找到 Cookie 文件 ({COOKIE_FILE})"
+    # 2. 检查浏览器数据目录是否存在
+    if not os.path.exists(USER_DATA_DIR):
+        msg = f"认证失败: 未找到浏览器数据目录 ({USER_DATA_DIR})"
         logger.error(msg)
         send_dingtalk_notification(
             "❌ 日报填写失败",
-            f"## ❌ 认证失败\n\n**原因**: 未在项目根目录找到 `cookie.json` 文件。\n\n**解决方法**: 请在本地运行 `python script/get_cookie.py` 脚本生成该文件，并上传到服务器。"
+            f"## ❌ 认证失败\n\n**原因**: 未在项目根目录找到 `browser_data` 目录。\n\n**解决方法**: 请在本地运行 `python script/get_cookie.py` 脚本进行登录，并确保目录已上传到服务器。"
         )
         if is_api_call:
             return {"success": False, "message": msg}
@@ -293,30 +279,26 @@ def run(is_api_call=False):
 
     # 使用 sync_playwright 上下文管理器
     with sync_playwright() as p:
-        browser = None
+        context = None
         try:
             logger.info("启动浏览器...")
-            browser = p.chromium.launch(
+            # 使用持久化上下文
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=USER_DATA_DIR,
                 headless=True,
                 args=[
                     "--start-maximized", 
                     "--disable-gpu",
                     "--lang=zh-CN" # 强制设置浏览器语言为中文
-                ]
-            )
-            
-            # 创建上下文并注入 Cookie
-            context = browser.new_context(
+                ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN', # 设置上下文语言环境
                 timezone_id='Asia/Shanghai' # 设置时区
             )
-            with open(COOKIE_FILE, 'r', encoding='utf-8') as f:
-                cookies = json.load(f)
-                context.add_cookies(cookies)
-            logger.info("Cookie 注入成功")
+            
+            logger.info("浏览器上下文已启动")
 
-            page = context.new_page()
+            page = context.pages[0] if context.pages else context.new_page()
             screenshot_path = ""
 
             logger.info(f"正在打开页面: {TARGET_URL}")
@@ -365,16 +347,6 @@ def run(is_api_call=False):
             screenshot_path = os.path.join(IMG_LOG_DIR, screenshot_name)
             page.screenshot(path=screenshot_path)
             logger.info(f"截图已保存: {screenshot_path}")
-
-            # --- 保存最新的 Cookie ---
-            try:
-                updated_cookies = context.cookies()
-                with open(COOKIE_FILE, 'w', encoding='utf-8') as f:
-                    json.dump(updated_cookies, f, ensure_ascii=False, indent=4)
-                logger.info(f"Cookies 已更新并保存至 {COOKIE_FILE}")
-            except Exception as cookie_err:
-                logger.error(f"保存 Cookie 失败: {cookie_err}")
-            # ---------------------------
 
             # --- 核心：上传图片并发送通知 ---
             image_url = upload_to_cos_and_get_url(screenshot_path)
@@ -428,11 +400,11 @@ def run(is_api_call=False):
                 return {"success": False, "message": f"执行失败: {str(e)}"}
 
         finally:
-            if browser:
+            if context:
                 time.sleep(2)
                 try:
-                    browser.close()
-                    logger.info("浏览器已关闭")
+                    context.close()
+                    logger.info("浏览器上下文已关闭")
                 except Exception as e:
                     logger.warning(f"关闭浏览器时出错 (可能已关闭): {e}")
 
