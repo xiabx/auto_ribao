@@ -23,6 +23,7 @@ img_logs/
 work_plan.db
 config.yaml
 cookie.json
+session_token.json
 
 # OS
 .DS_Store
