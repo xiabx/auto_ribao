@@ -15,6 +15,19 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 USER_DATA_DIR = os.path.join(BASE_DIR, 'browser_data')
 SESSION_FILE = os.path.join(BASE_DIR, 'session_token.json')
 
+# 统一的 User-Agent
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+def _configure_context(context):
+    """
+    配置上下文：注入反检测脚本
+    """
+    context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+    """)
+
 def export_session():
     """
     [本地运行] 打开浏览器，人工登录，然后导出 Cookie 和 LocalStorage 到 JSON 文件
@@ -31,9 +44,17 @@ def export_session():
         context = p.chromium.launch_persistent_context(
             user_data_dir=USER_DATA_DIR,
             headless=False, 
-            args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"],
+            user_agent=USER_AGENT,
+            args=[
+                "--start-maximized", 
+                "--disable-gpu", 
+                "--lang=zh-CN",
+                "--disable-blink-features=AutomationControlled" # 屏蔽自动化特征
+            ],
             viewport=None
         )
+        
+        _configure_context(context)
         
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -87,6 +108,11 @@ def import_session():
 
     print(f"🚀 正在导入会话数据...")
     
+    # 强制移除 DISPLAY 环境变量，防止 Xshell 触发 Xmanager 弹窗
+    if 'DISPLAY' in os.environ:
+        print("检测到 DISPLAY 环境变量，正在移除以避免 X11 转发干扰...")
+        del os.environ['DISPLAY']
+    
     # 读取会话数据
     with open(SESSION_FILE, 'r', encoding='utf-8') as f:
         session_data = json.load(f)
@@ -100,8 +126,15 @@ def import_session():
         context = p.chromium.launch_persistent_context(
             user_data_dir=USER_DATA_DIR,
             headless=True,
-            args=["--disable-gpu", "--lang=zh-CN"]
+            user_agent=USER_AGENT,
+            args=[
+                "--disable-gpu", 
+                "--lang=zh-CN",
+                "--disable-blink-features=AutomationControlled"
+            ]
         )
+        
+        _configure_context(context)
         
         page = context.pages[0] if context.pages else context.new_page()
 

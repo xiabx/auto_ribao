@@ -8,6 +8,7 @@ import ssl
 import socket
 import getpass
 import platform
+import random
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from qcloud_cos import CosConfig
@@ -38,6 +39,9 @@ IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
 USER_DATA_DIR = os.path.join(BASE_DIR, 'browser_data')
 # 会话 Token 文件路径
 SESSION_FILE = os.path.join(BASE_DIR, 'session_token.json')
+
+# 统一的 User-Agent
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # --- 配置结束 ---
 
@@ -138,6 +142,17 @@ def send_dingtalk_notification(title, content, image_url=None):
         logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
 
 
+def _configure_context(context):
+    """
+    配置上下文：注入反检测脚本
+    """
+    context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {
+            get: () => undefined
+        });
+    """)
+
+
 def _inject_session_from_file(context, page):
     """
     从 session_token.json 文件注入会话数据 (Cookie 和 LocalStorage)
@@ -182,6 +197,26 @@ def _inject_session_from_file(context, page):
         return False
 
 
+def _simulate_human_activity(page):
+    """
+    模拟人类活动：鼠标移动、随机点击
+    """
+    try:
+        logger.info("🤖 模拟人类活动...")
+        # 随机移动鼠标
+        for _ in range(5):
+            x = random.randint(100, 1000)
+            y = random.randint(100, 800)
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.5, 1.5))
+        
+        # 模拟点击页面空白处 (body)
+        page.mouse.click(10, 10)
+        logger.info("🤖 人类活动模拟完成")
+    except Exception as e:
+        logger.warning(f"模拟活动失败: {e}")
+
+
 def keep_alive():
     """
     后台保活任务：访问页面以刷新 Session，并检查 Cookie 是否有效
@@ -204,11 +239,19 @@ def keep_alive():
             context = p.chromium.launch_persistent_context(
                 user_data_dir=USER_DATA_DIR,
                 headless=True,
-                args=["--start-maximized", "--disable-gpu", "--lang=zh-CN"],
+                user_agent=USER_AGENT,
+                args=[
+                    "--start-maximized", 
+                    "--disable-gpu", 
+                    "--lang=zh-CN",
+                    "--disable-blink-features=AutomationControlled"
+                ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN',
                 timezone_id='Asia/Shanghai'
             )
+            
+            _configure_context(context)
             
             page = context.pages[0] if context.pages else context.new_page()
             
@@ -242,7 +285,11 @@ def keep_alive():
                 logger.info("🔄 刷新页面以确保 Session 延期...")
                 page.reload()
                 page.wait_for_load_state("domcontentloaded")
-                time.sleep(2)
+                
+                # 增加停留时间并模拟活动
+                logger.info("⏳ 保持页面活跃 10 秒...")
+                _simulate_human_activity(page)
+                time.sleep(10)
                 
                 logger.info(f"Session 已刷新")
                 
@@ -340,15 +387,19 @@ def run(is_api_call=False):
             context = p.chromium.launch_persistent_context(
                 user_data_dir=USER_DATA_DIR,
                 headless=True,
+                user_agent=USER_AGENT,
                 args=[
                     "--start-maximized", 
-                    "--disable-gpu",
-                    "--lang=zh-CN" # 强制设置浏览器语言为中文
+                    "--disable-gpu", 
+                    "--lang=zh-CN",
+                    "--disable-blink-features=AutomationControlled"
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN', # 设置上下文语言环境
                 timezone_id='Asia/Shanghai' # 设置时区
             )
+            
+            _configure_context(context)
             
             logger.info("浏览器上下文已启动")
 
