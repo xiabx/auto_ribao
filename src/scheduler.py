@@ -50,7 +50,7 @@ def update_schedule_time(new_time_str):
             schedule.clear()
             
             # 重新添加保活任务 (每1小时)
-            schedule.every(1).hours.do(keep_alive)
+            # schedule.every(1).hours.do(keep_alive)
             
             # 添加新任务并获取 job 实例
             job_instance = schedule.every().day.at(new_time_str).do(job)
@@ -81,14 +81,14 @@ def start_scheduler():
         # 1. 日报填写任务
         job_instance = schedule.every().day.at(time_str).do(job)
         # 2. Session 保活任务 (每1小时执行一次)
-        schedule.every(1).hours.do(keep_alive)
+        # schedule.every(1).hours.do(keep_alive)
     
     # 初始化全局时间变量
     with _current_schedule_time_lock:
         _current_schedule_time = time_str
         
     logger.info(f"定时任务已设置: 每天 {_current_schedule_time} 执行。下次预计执行时间 (服务器时间): {job_instance.next_run}")
-    logger.info("保活任务已设置: 每 1 小时执行一次")
+    # logger.info("保活任务已设置: 每 1 小时执行一次")
 
     while True:
         with schedule_lock:
