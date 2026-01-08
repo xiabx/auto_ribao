@@ -36,6 +36,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMG_LOG_DIR = os.path.join(BASE_DIR, config['app']['img_log_dir'])
 # 浏览器数据保存路径 (项目根目录/browser_data)
 USER_DATA_DIR = os.path.join(BASE_DIR, 'browser_data')
+# 会话 Token 文件路径
+SESSION_FILE = os.path.join(BASE_DIR, 'session_token.json')
 
 # --- 配置结束 ---
 
@@ -136,9 +138,54 @@ def send_dingtalk_notification(title, content, image_url=None):
         logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
 
 
+def _inject_session_from_file(context, page):
+    """
+    从 session_token.json 文件注入会话数据 (Cookie 和 LocalStorage)
+    """
+    if not os.path.exists(SESSION_FILE):
+        logger.warning(f"会话文件不存在: {SESSION_FILE}，无法进行会话恢复")
+        return False
+
+    try:
+        logger.info(f"正在尝试从 {SESSION_FILE} 恢复会话...")
+        with open(SESSION_FILE, 'r', encoding='utf-8') as f:
+            session_data = json.load(f)
+
+        # 1. 注入 Cookies
+        if 'cookies' in session_data:
+            context.add_cookies(session_data['cookies'])
+            logger.info(f"已注入 {len(session_data['cookies'])} 个 Cookie")
+
+        # 2. 注入 LocalStorage
+        if 'origins' in session_data:
+            for item in session_data['origins']:
+                origin = item['origin']
+                storage = item['localStorage']
+                
+                logger.info(f"正在注入 LocalStorage 到: {origin}")
+                try:
+                    # 必须先跳转到对应的域才能操作 localStorage
+                    page.goto(origin)
+                    
+                    # 注入数据
+                    page.evaluate(f"""(data) => {{
+                        for (const [key, value] of Object.entries(data)) {{
+                            localStorage.setItem(key, value);
+                        }}
+                    }}""", storage)
+                except Exception as e:
+                    logger.warning(f"注入 LocalStorage 失败: {e}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"会话恢复失败: {e}")
+        return False
+
+
 def keep_alive():
     """
     后台保活任务：访问页面以刷新 Session，并检查 Cookie 是否有效
+    如果失效，尝试从 session_token.json 恢复
     """
     try:
         logger.info("=" * 40)
@@ -173,10 +220,23 @@ def keep_alive():
                 
                 # Check login status
                 iframe = page.frame_locator("#wiki-notable-iframe")
-                # Wait up to 10s
-                iframe.get_by_role("button", name="添加记录").wait_for(timeout=10000)
-                
-                logger.info("✅ 登录状态有效")
+                try:
+                    # Wait up to 5s to check if logged in
+                    iframe.get_by_role("button", name="添加记录").wait_for(timeout=5000)
+                    logger.info("✅ 登录状态有效")
+                except Exception:
+                    logger.warning("⚠️ 登录状态失效，尝试使用 session_token.json 恢复...")
+                    if _inject_session_from_file(context, page):
+                        logger.info("会话数据注入完成，重新加载页面验证...")
+                        page.goto(TARGET_URL, timeout=60000)
+                        page.wait_for_load_state("domcontentloaded")
+                        time.sleep(2)
+                        
+                        # Re-check login status
+                        iframe.get_by_role("button", name="添加记录").wait_for(timeout=10000)
+                        logger.info("✅ 会话恢复成功，登录状态有效")
+                    else:
+                        raise Exception("会话恢复失败或文件不存在")
                 
                 # 刷新页面以确保 Session 延期
                 logger.info("🔄 刷新页面以确保 Session 延期...")
@@ -187,7 +247,7 @@ def keep_alive():
                 logger.info(f"Session 已刷新")
                 
             except Exception as e:
-                logger.warning(f"⚠️ 登录状态可能已失效: {e}")
+                logger.warning(f"⚠️ 保活失败: {e}")
                 # 保活失败不发送钉钉通知，仅记录日志
             finally:
                 context.close()
