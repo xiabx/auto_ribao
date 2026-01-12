@@ -3,6 +3,7 @@ import json
 import os
 import argparse
 import sys
+from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 # 添加 src 目录到路径，以便导入 config_loader
@@ -18,15 +19,31 @@ SESSION_FILE = os.path.join(BASE_DIR, 'session_token.json')
 # 统一的 User-Agent
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-def _configure_context(context):
+def _inject_stealth_scripts(context):
     """
-    配置上下文：注入反检测脚本
+    深度伪装：注入反检测脚本，模拟真实浏览器特征
     """
-    context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        });
-    """)
+    stealth_js = """
+        // 隐藏 WebDriver
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+        // 伪装 WebGL
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            if (parameter === 37445) return 'Intel Inc.';
+            if (parameter === 37446) return 'Intel(R) Iris(R) Xe Graphics';
+            return getParameter.apply(this, [parameter]);
+        };
+
+        // 伪装 Plugins
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+
+        // 伪装 Languages
+        Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+        
+        window.chrome = { runtime: {} };
+    """
+    context.add_init_script(stealth_js)
 
 def export_session():
     """
@@ -49,12 +66,14 @@ def export_session():
                 "--start-maximized", 
                 "--disable-gpu", 
                 "--lang=zh-CN",
-                "--disable-blink-features=AutomationControlled" # 屏蔽自动化特征
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-infobars"
             ],
             viewport=None
         )
         
-        _configure_context(context)
+        _inject_stealth_scripts(context)
         
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -72,8 +91,7 @@ def export_session():
         # 1. 获取 Cookies
         cookies = context.cookies()
         
-        # 2. 获取 LocalStorage (需要在当前页面上下文中执行)
-        # 确保我们在目标域下
+        # 2. 获取 LocalStorage
         origins = page.evaluate("() => window.location.origin")
         local_storage = page.evaluate("() => JSON.stringify(localStorage)")
         
@@ -84,7 +102,8 @@ def export_session():
                     "origin": origins,
                     "localStorage": json.loads(local_storage)
                 }
-            ]
+            ],
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
 
         # 保存到通用 JSON 文件
@@ -108,21 +127,17 @@ def import_session():
 
     print(f"🚀 正在导入会话数据...")
     
-    # 强制移除 DISPLAY 环境变量，防止 Xshell 触发 Xmanager 弹窗
     if 'DISPLAY' in os.environ:
         print("检测到 DISPLAY 环境变量，正在移除以避免 X11 转发干扰...")
         del os.environ['DISPLAY']
     
-    # 读取会话数据
     with open(SESSION_FILE, 'r', encoding='utf-8') as f:
         session_data = json.load(f)
 
-    # 确保目录存在
     if not os.path.exists(USER_DATA_DIR):
         os.makedirs(USER_DATA_DIR)
 
     with sync_playwright() as p:
-        # 启动持久化上下文 (无界面)
         context = p.chromium.launch_persistent_context(
             user_data_dir=USER_DATA_DIR,
             headless=True,
@@ -130,11 +145,13 @@ def import_session():
             args=[
                 "--disable-gpu", 
                 "--lang=zh-CN",
-                "--disable-blink-features=AutomationControlled"
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-infobars"
             ]
         )
         
-        _configure_context(context)
+        _inject_stealth_scripts(context)
         
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -151,10 +168,7 @@ def import_session():
                 
                 print(f"正在注入 LocalStorage 到: {origin}")
                 try:
-                    # 必须先跳转到对应的域才能操作 localStorage
                     page.goto(origin)
-                    
-                    # 注入数据
                     page.evaluate(f"""(data) => {{
                         for (const [key, value] of Object.entries(data)) {{
                             localStorage.setItem(key, value);
@@ -168,16 +182,12 @@ def import_session():
         page.goto(LOGIN_URL)
         time.sleep(3)
         
-        # 简单截图验证（可选）
-        # page.screenshot(path="login_verify.png")
-        
         print(f"✅ 会话导入完成！数据已保存至: {USER_DATA_DIR}")
         context.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="会话管理工具")
     parser.add_argument('--import-session', action='store_true', dest='do_import', help="导入会话数据 (在服务器运行)")
-    # 兼容旧习惯，不带参数默认是导出
     args = parser.parse_args()
 
     if args.do_import:

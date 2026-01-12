@@ -40,7 +40,7 @@ USER_DATA_DIR = os.path.join(BASE_DIR, 'browser_data')
 # 会话 Token 文件路径
 SESSION_FILE = os.path.join(BASE_DIR, 'session_token.json')
 
-# 统一的 User-Agent
+# 统一的 User-Agent (模拟 Windows Chrome)
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # --- 配置结束 ---
@@ -142,15 +142,91 @@ def send_dingtalk_notification(title, content, image_url=None):
         logger.error(f"发送钉钉通知失败: {e}", exc_info=True)
 
 
-def _configure_context(context):
+def _inject_stealth_scripts(context):
     """
-    配置上下文：注入反检测脚本
+    深度伪装：注入反检测脚本，模拟真实浏览器特征
     """
-    context.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
+    # 1. 隐藏 webdriver 属性
+    # 2. 伪装 WebGL 渲染器 (防止被识别为 Headless/SwiftShader)
+    # 3. 伪装 Plugins 和 Languages
+    stealth_js = """
+        // 隐藏 WebDriver
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+        // 伪装 WebGL
+        const getParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+            // 37445: UNMASKED_VENDOR_WEBGL
+            // 37446: UNMASKED_RENDERER_WEBGL
+            if (parameter === 37445) {
+                return 'Intel Inc.';
+            }
+            if (parameter === 37446) {
+                return 'Intel(R) Iris(R) Xe Graphics';
+            }
+            return getParameter.apply(this, [parameter]);
+        };
+
+        // 伪装 Plugins (Headless 默认无插件)
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [1, 2, 3, 4, 5],
         });
-    """)
+
+        // 伪装 Languages
+        Object.defineProperty(navigator, 'languages', {
+            get: () => ['zh-CN', 'zh', 'en'],
+        });
+        
+        // 绕过 Chrome 自动化检测
+        window.chrome = { runtime: {} };
+    """
+    context.add_init_script(stealth_js)
+
+
+def _save_session_to_file(context, page):
+    """
+    [核心] 将当前最新的会话状态（Cookie + LocalStorage）保存到 session_token.json
+    实现“滚动更新”，防止 Token 轮转后本地持有旧 Token 导致恢复失败。
+    """
+    try:
+        logger.info("💾 正在保存最新会话状态到文件...")
+        
+        # 1. 获取 Cookies
+        cookies = context.cookies()
+        
+        # 2. 获取 LocalStorage
+        # 确保在目标域下
+        if TARGET_URL not in page.url:
+             # 如果当前不在目标页，尝试跳转或忽略 LocalStorage (视情况而定)
+             # 这里假设调用此函数时已经处于登录后的页面
+             pass
+
+        origins = page.evaluate("() => window.location.origin")
+        local_storage = page.evaluate("() => JSON.stringify(localStorage)")
+        
+        session_data = {
+            "cookies": cookies,
+            "origins": [
+                {
+                    "origin": origins,
+                    "localStorage": json.loads(local_storage)
+                }
+            ],
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        # 原子写入 (先写临时文件再重命名，防止损坏)
+        temp_file = SESSION_FILE + ".tmp"
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(session_data, f, ensure_ascii=False, indent=4)
+        
+        if os.path.exists(SESSION_FILE):
+            os.remove(SESSION_FILE)
+        os.rename(temp_file, SESSION_FILE)
+        
+        logger.info(f"✅ 最新会话已更新至: {SESSION_FILE}")
+    except Exception as e:
+        logger.error(f"保存会话失败: {e}")
 
 
 def _inject_session_from_file(context, page):
@@ -210,8 +286,15 @@ def _simulate_human_activity(page):
             page.mouse.move(x, y)
             time.sleep(random.uniform(0.5, 1.5))
         
-        # 模拟点击页面空白处 (body)
-        page.mouse.click(10, 10)
+        # 尝试点击一些非破坏性的元素，例如侧边栏菜单，以触发更真实的交互
+        # 如果找不到特定元素，回退到点击 body
+        try:
+            # 假设有一个侧边栏或导航栏，尝试 hover 或点击一下
+            # 这里使用 body 点击作为通用方案，但稍微偏移一点
+            page.mouse.click(random.randint(10, 200), random.randint(10, 200))
+        except Exception:
+            pass
+            
         logger.info("🤖 人类活动模拟完成")
     except Exception as e:
         logger.warning(f"模拟活动失败: {e}")
@@ -244,14 +327,17 @@ def keep_alive():
                     "--start-maximized", 
                     "--disable-gpu", 
                     "--lang=zh-CN",
-                    "--disable-blink-features=AutomationControlled"
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-infobars"
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN',
                 timezone_id='Asia/Shanghai'
             )
             
-            _configure_context(context)
+            _inject_stealth_scripts(context)
             
             page = context.pages[0] if context.pages else context.new_page()
             
@@ -291,7 +377,11 @@ def keep_alive():
                 _simulate_human_activity(page)
                 time.sleep(10)
                 
-                logger.info(f"Session 已刷新")
+                # --- 关键：保存最新的 Session ---
+                _save_session_to_file(context, page)
+                # -----------------------------
+                
+                logger.info(f"Session 已刷新并保存")
                 
             except Exception as e:
                 logger.warning(f"⚠️ 保活失败: {e}")
@@ -392,14 +482,17 @@ def run(is_api_call=False):
                     "--start-maximized", 
                     "--disable-gpu", 
                     "--lang=zh-CN",
-                    "--disable-blink-features=AutomationControlled"
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-infobars"
                 ],
                 viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN', # 设置上下文语言环境
                 timezone_id='Asia/Shanghai' # 设置时区
             )
             
-            _configure_context(context)
+            _inject_stealth_scripts(context)
             
             logger.info("浏览器上下文已启动")
 
@@ -470,6 +563,10 @@ def run(is_api_call=False):
                 f"**内容摘要**:\n{todo_content}",
                 image_url
             )
+            
+            # --- 关键：保存最新的 Session ---
+            _save_session_to_file(context, page)
+            # -----------------------------
             
             if is_api_call:
                 return {"success": True, "message": "日报填写成功"}
